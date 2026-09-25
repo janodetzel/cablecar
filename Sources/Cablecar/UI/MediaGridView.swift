@@ -15,7 +15,8 @@ struct MediaGridView: View {
                         MediaCell(
                             item: item,
                             thumbnail: model.thumbnails[item.id],
-                            isSelected: model.selection.contains(item.id)
+                            isSelected: model.selection.contains(item.id),
+                            squareThumbnails: model.squareThumbnails
                         )
                         .onTapGesture { model.toggleSelection(of: item) }
                         .onAppear { model.requestThumbnail(for: item.id) }
@@ -47,13 +48,17 @@ struct MediaCell: View {
     let item: MediaItem
     let thumbnail: CGImage?
     let isSelected: Bool
+    let squareThumbnails: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            thumbnailView
-                .frame(height: 130)
-                .frame(maxWidth: .infinity)
+            // The tile itself is always square so rows stay aligned no matter
+            // the media orientation; the toggle only changes crop vs letterbox.
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay { thumbnailView }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topTrailing) { selectionBadge }
                 .overlay(alignment: .bottomLeading) { kindBadge }
                 .overlay(alignment: .center) { notOnDeviceBadge }
@@ -77,9 +82,18 @@ struct MediaCell: View {
     @ViewBuilder
     private var thumbnailView: some View {
         if let thumbnail {
-            Image(decorative: thumbnail, scale: 1)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+            if squareThumbnails {
+                Image(decorative: thumbnail, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Rectangle().fill(.quaternary)
+                    Image(decorative: thumbnail, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                }
+            }
         } else {
             ZStack {
                 Rectangle().fill(.quaternary)

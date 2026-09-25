@@ -53,6 +53,18 @@ struct ContentView: View {
             } label: {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
             }
+
+            Button {
+                model.squareThumbnails.toggle()
+            } label: {
+                Label(
+                    model.squareThumbnails ? "Full Aspect Ratio" : "Square Thumbnails",
+                    systemImage: model.squareThumbnails ? "rectangle.arrowtriangle.2.outward" : "square.grid.2x2"
+                )
+            }
+            .help(model.squareThumbnails
+                ? "Show thumbnails in their full aspect ratio"
+                : "Show thumbnails as squares")
         }
 
         ToolbarItemGroup {

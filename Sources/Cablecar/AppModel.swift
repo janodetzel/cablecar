@@ -28,6 +28,13 @@ final class AppModel {
         didSet { rebuildVisibleItems() }
     }
 
+    /// Photos-app-style thumbnail rendering: square-cropped or the item's full
+    /// aspect ratio letterboxed in the tile. Remembered between launches.
+    var squareThumbnails: Bool {
+        didSet { UserDefaults.standard.set(squareThumbnails, forKey: Self.squareThumbnailsDefaultsKey) }
+    }
+    private static let squareThumbnailsDefaultsKey = "squareThumbnails"
+
     private(set) var visibleItems: [MediaItem] = []
 
     var destination: URL? {
@@ -41,6 +48,7 @@ final class AppModel {
 
     init(source: any MediaSource) {
         self.source = source
+        squareThumbnails = UserDefaults.standard.object(forKey: Self.squareThumbnailsDefaultsKey) as? Bool ?? true
         if let path = UserDefaults.standard.string(forKey: Self.destinationDefaultsKey) {
             destination = URL(fileURLWithPath: path, isDirectory: true)
         }
