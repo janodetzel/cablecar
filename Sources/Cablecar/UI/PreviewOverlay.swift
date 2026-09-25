@@ -277,9 +277,14 @@ private struct VideoControls: View {
 
 // MARK: - Zoom & pan
 
-/// Pinch-to-zoom (1×–8×) with drag-to-pan while zoomed; double-click resets.
+/// Pinch-to-zoom (0.5×–8×) with drag-to-pan while zoomed in; double-click
+/// resets. Zooming out below fit size is allowed down to `minZoom` and stays
+/// there — no snap-back.
 private struct ZoomableView<Content: View>: View {
     @ViewBuilder let content: Content
+
+    private let minZoom: CGFloat = 0.5
+    private let maxZoom: CGFloat = 8
 
     @State private var committedZoom: CGFloat = 1
     @State private var activeZoom: CGFloat = 1
@@ -309,9 +314,16 @@ private struct ZoomableView<Content: View>: View {
                 activeZoom = value.magnification
             }
             .onEnded { value in
-                committedZoom = min(max(committedZoom * value.magnification, 1), 8)
+                committedZoom = min(max(committedZoom * value.magnification, minZoom), maxZoom)
                 activeZoom = 1
-                if committedZoom == 1 { reset() }
+                // At or below fit size the whole image is visible — clear any
+                // leftover pan, but keep the chosen zoom level.
+                if committedZoom <= 1 {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        committedOffset = .zero
+                        activeOffset = .zero
+                    }
+                }
             }
     }
 
