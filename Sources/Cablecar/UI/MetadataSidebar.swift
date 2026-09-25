@@ -7,7 +7,7 @@ struct MetadataSidebar: View {
 
     var body: some View {
         Group {
-            if model.isSelectionMode {
+            if model.isMultipleSelection {
                 selectionSummary
             } else if let item = model.inspectedItem {
                 ScrollView {
@@ -39,19 +39,19 @@ struct MetadataSidebar: View {
         }
     }
 
-    /// While items are selected for import, per-item metadata makes no sense —
+    /// With more than one item selected, per-item metadata makes no sense —
     /// show what the selection amounts to instead.
     private var selectionSummary: some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 32))
                 .foregroundStyle(Color.accentColor)
-            Text("\(model.selection.count) item\(model.selection.count == 1 ? "" : "s") selected")
+            Text("\(model.selection.count) items selected")
                 .font(.headline)
             Text(ByteCountFormatter.string(fromByteCount: model.selectedTotalBytes, countStyle: .file))
                 .foregroundStyle(.secondary)
             Divider().padding(.vertical, 4)
-            Text("Deselect all to browse item metadata.")
+            Text("Click a single item to see its metadata.\nEscape deselects all.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

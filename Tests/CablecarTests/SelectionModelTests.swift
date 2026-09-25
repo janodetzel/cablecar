@@ -50,30 +50,41 @@ final class SelectionModelTests: XCTestCase {
         Set(indices.map { "item\($0)" })
     }
 
-    func testBrowseModeClickInspectsWithoutSelecting() {
+    func testPlainClickSelectsOnlyThatItemAndInspectsIt() {
         model.handleClick(items[2], shiftPressed: false)
-        XCTAssertTrue(model.selection.isEmpty)
+        XCTAssertEqual(model.selection, ids(2))
         XCTAssertEqual(model.inspectedItemID, "item2")
-        XCTAssertFalse(model.isSelectionMode)
+
+        model.handleClick(items[3], shiftPressed: false)
+        XCTAssertEqual(model.selection, ids(3), "plain click replaces the selection")
+        XCTAssertEqual(model.inspectedItemID, "item3")
+        XCTAssertFalse(model.isMultipleSelection)
     }
 
-    func testCheckboxThenPlainClicksToggle() {
-        model.toggleSelection(of: items[1])
-        XCTAssertEqual(model.selection, ids(1))
-        model.handleClick(items[3], shiftPressed: false)
-        XCTAssertEqual(model.selection, ids(1, 3))
+    func testPlainClickOnNotOnDeviceItemInspectsButClearsSelection() {
         model.handleClick(items[1], shiftPressed: false)
+        model.handleClick(items[4], shiftPressed: false)
+        XCTAssertTrue(model.selection.isEmpty)
+        XCTAssertEqual(model.inspectedItemID, "item4")
+    }
+
+    func testCommandClickTogglesKeepingTheRest() {
+        model.handleClick(items[1], shiftPressed: false)
+        model.handleClick(items[3], shiftPressed: false, commandPressed: true)
+        XCTAssertEqual(model.selection, ids(1, 3))
+        XCTAssertEqual(model.inspectedItemID, "item3")
+        model.handleClick(items[1], shiftPressed: false, commandPressed: true)
         XCTAssertEqual(model.selection, ids(3))
     }
 
-    func testShiftClickSelectsRangeFromAnchor() {
-        model.toggleSelection(of: items[1])
+    func testClickThenShiftClickSelectsRange() {
+        model.handleClick(items[1], shiftPressed: false)
         model.handleClick(items[3], shiftPressed: true)
         XCTAssertEqual(model.selection, ids(1, 2, 3))
     }
 
     func testShiftClickInsideRangeShrinksIt() {
-        model.toggleSelection(of: items[0])
+        model.handleClick(items[0], shiftPressed: false)
         model.handleClick(items[5], shiftPressed: true)
         XCTAssertEqual(model.selection, ids(0, 1, 2, 3, 5), "item4 is not on device")
         // Finder behavior: shift-click inside the range re-pins it to the click.
@@ -82,16 +93,16 @@ final class SelectionModelTests: XCTestCase {
     }
 
     func testShiftClickFlipsDirectionAroundAnchor() {
-        model.toggleSelection(of: items[3])
+        model.handleClick(items[3], shiftPressed: false)
         model.handleClick(items[5], shiftPressed: true)
         XCTAssertEqual(model.selection, ids(3, 5), "item4 is not on device")
         model.handleClick(items[1], shiftPressed: true)
         XCTAssertEqual(model.selection, ids(1, 2, 3))
     }
 
-    func testShiftRangeReplacementKeepsIndependentSelections() {
-        model.toggleSelection(of: items[5])   // independent selection
-        model.toggleSelection(of: items[0])   // anchor
+    func testShiftRangeReplacementKeepsCommandClickedSelections() {
+        model.handleClick(items[5], shiftPressed: false)
+        model.handleClick(items[0], shiftPressed: false, commandPressed: true)  // anchor
         model.handleClick(items[2], shiftPressed: true)
         XCTAssertEqual(model.selection, ids(0, 1, 2, 5))
         model.handleClick(items[1], shiftPressed: true)
@@ -107,23 +118,26 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertEqual(model.selection, ids(2, 3, 5))
     }
 
-    func testPlainClickResetsAnchorAndRange() {
-        model.toggleSelection(of: items[0])
+    func testPlainClickResetsAnchorAndDropsOldRange() {
+        model.handleClick(items[0], shiftPressed: false)
         model.handleClick(items[2], shiftPressed: true)
         XCTAssertEqual(model.selection, ids(0, 1, 2))
-        // New anchor via plain click; old shift range is no longer live.
+        // Plain click replaces everything and re-anchors.
         model.handleClick(items[5], shiftPressed: false)
         model.handleClick(items[3], shiftPressed: true)
-        XCTAssertEqual(model.selection, ids(0, 1, 2, 3, 5), "range item4 skipped; earlier range kept")
+        XCTAssertEqual(model.selection, ids(3, 5), "item4 skipped inside the new range")
     }
 
-    func testDeselectAllReturnsToBrowseMode() {
-        model.toggleSelection(of: items[0])
+    func testDeselectAllKeepsInspectedItem() {
+        model.handleClick(items[0], shiftPressed: false)
         model.handleClick(items[2], shiftPressed: true)
         model.deselectAll()
-        XCTAssertFalse(model.isSelectionMode)
-        model.handleClick(items[1], shiftPressed: false)
         XCTAssertTrue(model.selection.isEmpty)
-        XCTAssertEqual(model.inspectedItemID, "item1")
+        XCTAssertEqual(model.inspectedItemID, "item0", "Escape keeps the last inspected item")
+    }
+
+    func testSelectAllVisibleSkipsNotOnDevice() {
+        model.selectAllVisible()
+        XCTAssertEqual(model.selection, ids(0, 1, 2, 3, 5))
     }
 }

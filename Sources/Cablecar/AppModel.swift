@@ -74,17 +74,52 @@ final class AppModel {
         source.delegate = self
     }
 
-    func start() { source.start() }
+    func start() {
+        source.start()
+        installKeyboardShortcuts()
+    }
+
+    // MARK: - Keyboard shortcuts
+
+    private var keyMonitor: Any?
+
+    /// ⌘A = select all visible, Escape = deselect all. A local NSEvent monitor
+    /// is used instead of SwiftUI key handling so the shortcuts work without
+    /// fighting the default Edit menu or view focus.
+    private func installKeyboardShortcuts() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let keyCode = event.keyCode
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let characters = event.charactersIgnoringModifiers
+            let handled = MainActor.assumeIsolated { [weak self] () -> Bool in
+                guard let self, NSApp.keyWindow?.attachedSheet == nil else { return false }
+                // Leave text editing (e.g. a future search field) alone.
+                if NSApp.keyWindow?.firstResponder is NSTextView { return false }
+
+                if keyCode == 53, modifiers.isEmpty, !selection.isEmpty {  // Escape
+                    deselectAll()
+                    return true
+                }
+                if modifiers == .command, characters == "a" {
+                    selectAllVisible()
+                    return true
+                }
+                return false
+            }
+            return handled ? nil : event
+        }
+    }
 
     // MARK: - Selection
     //
-    // Photos-style two-mode model. Browse mode (nothing selected): clicking a
-    // tile only inspects it; selection starts via the hover checkbox or a
-    // shift-click. Selection mode (anything selected): plain clicks toggle,
-    // shift-clicks extend a range from the last-clicked anchor, and the
-    // inspector shows a selection summary instead of metadata.
+    // Finder-style model. Plain click selects just that item (and inspects
+    // it), cmd-click toggles items in and out, shift-click selects a live
+    // range from the anchor, ⌘A selects everything visible, Escape deselects.
+    // The inspector shows metadata for single items and a summary once more
+    // than one is selected.
 
-    var isSelectionMode: Bool { !selection.isEmpty }
+    var isMultipleSelection: Bool { selection.count > 1 }
 
     /// Range anchor for shift-clicks: the last tile whose selection state was
     /// changed by a direct click.
@@ -102,19 +137,28 @@ final class AppModel {
         selectedItems.reduce(0) { $0 + $1.totalSizeBytes }
     }
 
-    /// A plain click on the tile body.
-    func handleClick(_ item: MediaItem, shiftPressed: Bool) {
+    /// A click on a tile, dispatched by modifier keys.
+    func handleClick(_ item: MediaItem, shiftPressed: Bool, commandPressed: Bool = false) {
         if shiftPressed {
             extendSelection(to: item)
-        } else if isSelectionMode {
+        } else if commandPressed {
+            inspect(item)
             toggleSelection(of: item)
         } else {
             inspect(item)
+            replaceSelection(with: item)
         }
     }
 
-    /// The hover checkbox: always toggles selection, entering selection mode
-    /// from browse mode.
+    /// Plain click: this item becomes the whole selection (or none, for a
+    /// not-on-device item — it still gets inspected).
+    private func replaceSelection(with item: MediaItem) {
+        selection = item.isOnDevice ? [item.id] : []
+        selectionAnchorID = item.isOnDevice ? item.id : nil
+        shiftRangeIDs = []
+    }
+
+    /// Cmd-click: toggles the item, keeping the rest of the selection.
     func toggleSelection(of item: MediaItem) {
         guard item.isOnDevice else { return }
         if selection.contains(item.id) {
