@@ -140,4 +140,47 @@ final class SelectionModelTests: XCTestCase {
         model.selectAllVisible()
         XCTAssertEqual(model.selection, ids(0, 1, 2, 3, 5))
     }
+
+    // MARK: - Arrow-key navigation
+
+    func testArrowNavigationStepsAndClampsAtEdges() {
+        model.gridColumns = 3
+        model.handleClick(items[0], shiftPressed: false)
+
+        model.navigateSelection(.right)
+        XCTAssertEqual(model.inspectedItemID, "item1")
+        XCTAssertEqual(model.selection, ids(1))
+
+        model.navigateSelection(.left)
+        XCTAssertEqual(model.inspectedItemID, "item0")
+
+        model.navigateSelection(.left)
+        XCTAssertEqual(model.inspectedItemID, "item0", "clamps at the first item")
+
+        model.navigateSelection(.down)
+        XCTAssertEqual(model.inspectedItemID, "item3", "one row = gridColumns")
+
+        model.navigateSelection(.down)
+        XCTAssertEqual(model.inspectedItemID, "item3", "no full row below — stays put")
+
+        model.navigateSelection(.up)
+        XCTAssertEqual(model.inspectedItemID, "item0")
+    }
+
+    func testArrowNavigationOntoNotOnDeviceItemInspectsWithoutSelecting() {
+        model.gridColumns = 3
+        model.handleClick(items[3], shiftPressed: false)
+        model.navigateSelection(.right)
+        XCTAssertEqual(model.inspectedItemID, "item4")
+        XCTAssertTrue(model.selection.isEmpty, "iCloud-only item can be focused but not selected")
+        model.navigateSelection(.right)
+        XCTAssertEqual(model.inspectedItemID, "item5")
+        XCTAssertEqual(model.selection, ids(5))
+    }
+
+    func testArrowNavigationWithoutInspectedItemSelectsFirst() {
+        model.navigateSelection(.down)
+        XCTAssertEqual(model.inspectedItemID, "item0")
+        XCTAssertEqual(model.selection, ids(0))
+    }
 }

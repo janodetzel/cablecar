@@ -12,6 +12,11 @@ final class AppModel {
 
     let source: any MediaSource
     let importEngine = ImportEngine()
+    let preview = PreviewController()
+
+    /// Column count of the media grid, reported by the view; drives up/down
+    /// arrow navigation.
+    var gridColumns = 1
 
     private(set) var sourceState: SourceState = .waitingForDevice
     private(set) var items: [MediaItem] = []
@@ -90,16 +95,45 @@ final class AppModel {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let keyCode = event.keyCode
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Only real modifier keys: arrow keys always carry .function and
+            // .numericPad, which must not disqualify the plain-key checks.
+            let modifiers = event.modifierFlags.intersection([.shift, .control, .option, .command])
             let characters = event.charactersIgnoringModifiers
+            let isRepeat = event.isARepeat
             let handled = MainActor.assumeIsolated { [weak self] () -> Bool in
                 guard let self, NSApp.keyWindow?.attachedSheet == nil else { return false }
                 // Leave text editing (e.g. a future search field) alone.
                 if NSApp.keyWindow?.firstResponder is NSTextView { return false }
 
-                if keyCode == 53, modifiers.isEmpty, !selection.isEmpty {  // Escape
-                    deselectAll()
+                if keyCode == 53, modifiers.isEmpty {  // Escape
+                    if preview.isPresented {
+                        preview.dismiss(source: source)
+                        return true
+                    }
+                    if !selection.isEmpty {
+                        deselectAll()
+                        return true
+                    }
+                    return false
+                }
+                if keyCode == 49, modifiers.isEmpty, !isRepeat {  // Space
+                    guard preview.isPresented || inspectedItem != nil else { return false }
+                    togglePreview()
                     return true
+                }
+                if modifiers.isEmpty {
+                    let direction: NavigationDirection?
+                    switch keyCode {
+                    case 123: direction = .left
+                    case 124: direction = .right
+                    case 125: direction = .down
+                    case 126: direction = .up
+                    default: direction = nil
+                    }
+                    if let direction, !visibleItems.isEmpty {
+                        navigateSelection(direction)
+                        return true
+                    }
                 }
                 if modifiers == .command, characters == "a" {
                     selectAllVisible()
@@ -217,13 +251,54 @@ final class AppModel {
     // MARK: - Inspection
 
     /// Marks an item as inspected (works for not-on-device items too) and
-    /// lazily fetches its device metadata.
+    /// lazily fetches its device metadata. An open preview follows along.
     func inspect(_ item: MediaItem) {
         inspectedItemID = item.id
         requestThumbnail(for: item.id)
         if metadata[item.id] == nil {
             source.requestMetadata(for: item.id)
         }
+        if preview.isPresented {
+            preview.load(item, source: source, importRunning: importEngine.isRunning)
+        }
+    }
+
+    // MARK: - Preview & arrow-key navigation
+
+    func togglePreview() {
+        preview.toggle(inspectedItem, source: source, importRunning: importEngine.isRunning)
+    }
+
+    enum NavigationDirection {
+        case left, right, up, down
+    }
+
+    /// Arrow keys move the selection through the grid (Finder-style), also
+    /// while the preview is open. Left/right step one item, up/down one row.
+    func navigateSelection(_ direction: NavigationDirection) {
+        guard !visibleItems.isEmpty else { return }
+        guard
+            let currentID = inspectedItemID,
+            let currentIndex = visibleItems.firstIndex(where: { $0.id == currentID })
+        else {
+            selectNavigating(to: visibleItems[0])
+            return
+        }
+        let step: Int
+        switch direction {
+        case .left: step = -1
+        case .right: step = 1
+        case .up: step = -max(gridColumns, 1)
+        case .down: step = max(gridColumns, 1)
+        }
+        let target = currentIndex + step
+        guard visibleItems.indices.contains(target) else { return }
+        selectNavigating(to: visibleItems[target])
+    }
+
+    private func selectNavigating(to item: MediaItem) {
+        inspect(item)
+        replaceSelection(with: item)
     }
 
     // MARK: - Import
@@ -252,6 +327,9 @@ final class AppModel {
         guard canImport else { return }
         guard let destination = destination ?? chooseDestination() else { return }
         let items = selectedItems
+        // The source handles one download at a time — never race a preview
+        // fetch against the import.
+        preview.dismiss(source: source)
         importSummary = nil
         showImportSheet = true
         Task {
@@ -292,6 +370,9 @@ extension AppModel: MediaSourceDelegate {
         metadata = metadata.filter { ids.contains($0.key) }
         if let inspectedItemID, !ids.contains(inspectedItemID) {
             self.inspectedItemID = nil
+            if preview.isPresented {
+                preview.dismiss(source: source)
+            }
         }
         if let selectionAnchorID, !ids.contains(selectionAnchorID) {
             self.selectionAnchorID = nil

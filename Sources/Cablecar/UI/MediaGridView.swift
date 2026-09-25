@@ -4,14 +4,34 @@ import SwiftUI
 struct MediaGridView: View {
     @Environment(AppModel.self) private var model
 
-    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 12)]
+    private static let minCellWidth: CGFloat = 150
+    private static let spacing: CGFloat = 12
+
+    private let columns = [GridItem(.adaptive(minimum: minCellWidth, maximum: 200), spacing: spacing)]
 
     var body: some View {
+        ScrollViewReader { proxy in
+            scrollContent
+                .onChange(of: model.inspectedItemID) { _, id in
+                    if let id { proxy.scrollTo(id) }
+                }
+        }
+        // Mirror the adaptive grid's column math (as many min-width columns as
+        // fit) so up/down arrow navigation steps exactly one row.
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            let contentWidth = width - 2 * Self.spacing  // grid padding
+            model.gridColumns = max(1, Int((contentWidth + Self.spacing) / (Self.minCellWidth + Self.spacing)))
+        }
+    }
+
+    private var scrollContent: some View {
         ScrollView {
             if model.visibleItems.isEmpty {
                 emptyFilterState
             } else {
-                LazyVGrid(columns: columns, spacing: 12) {
+                LazyVGrid(columns: columns, spacing: Self.spacing) {
                     ForEach(model.visibleItems) { item in
                         MediaCell(
                             item: item,
@@ -29,9 +49,10 @@ struct MediaGridView: View {
                             )
                         }
                         .onAppear { model.requestThumbnail(for: item.id) }
+                        .id(item.id)
                     }
                 }
-                .padding(12)
+                .padding(Self.spacing)
             }
         }
     }

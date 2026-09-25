@@ -12,6 +12,11 @@ struct ContentView: View {
                 SourceStatusView(state: model.sourceState)
             }
         }
+        .overlay {
+            if model.preview.isPresented {
+                PreviewOverlay()
+            }
+        }
         .inspector(isPresented: $model.showInspector) {
             MetadataSidebar()
                 .inspectorColumnWidth(min: 220, ideal: 280, max: 400)
