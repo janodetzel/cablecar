@@ -5,6 +5,9 @@
 .build/
 .swiftpm/
 
+# Spike test downloads
+spike-downloads/
+
 # Xcode
 DerivedData/
 xcuserdata/

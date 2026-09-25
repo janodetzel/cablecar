@@ -33,4 +33,15 @@ Deferred to the future PhotoKit source, and stated plainly in the v1 UI:
 
 - v1 cannot import items shot before the phone offloaded them (Optimise iPhone Storage). Workaround until the PhotoKit source ships: Settings > Photos > Download and Keep Originals on the phone.
 - The `MediaSource` protocol must be designed so ImageCaptureCore-specific concepts (device trust, lock state, PTP quirks) do not leak into the UI layer.
-- Three facts must be verified in a spike before app code is written (see `docs/design.md`, "Spike"): exact `ICCameraFile` property names for slow-mo/time-lapse/sidecars, entitlement/TCC behavior of unsandboxed ImageCaptureCore, and how an iCloud-offloaded item presents itself over the cable. Spike findings amend this section.
+
+## Spike results (2026-09-25 — decision validated on hardware)
+
+The spike (`spike/`, run against the real iPhone) confirmed the USB path delivers everything this decision depends on:
+
+- **Unmodified HEVC/HDR originals over the cable**: an HDR clip downloaded byte-exact as `hvc1` 4K with Rec.2020 primaries and `ITU_R_2100_HLG` transfer — the core acceptance criterion — even though the device never reports the `SupportsHEIF` capability and `mediaPresentation` stays at its default. Per-file byte-size verification stays in the design as the safety net.
+- **No TCC/entitlement friction**: an unsandboxed CLI browsed, opened a session, and listed the full 2610-item catalog (~1 s total) with no permission prompt.
+- **Lock state is asynchronous**: session open fails with `-9943` at connect even if the phone is unlocked shortly after; the app must retry on `cameraDeviceDidRemoveAccessRestriction` (verified working).
+- **`uti` is only ever `public.image`/`public.movie`** — type filtering must use extension, `duration`, and the boolean flags.
+- **Live Photo `sidecarFiles` pairing works**; `.AAE` edit-recipe sidecars also appear.
+- **Saved filename can differ from the display name** for shared/saved (non-camera) media — the app must pass an explicit save-as filename so skip-existing is deterministic.
+- Open, non-blocking: whether iCloud-offloaded items are hidden or shown as small proxies (detection heuristic for the "not on device" badge), and whether `highFramerate`/`timeLapse` flags survive PTP (zero flagged in a 2610-item roll pending confirmation the roll contains such clips).

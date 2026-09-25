@@ -1,10 +1,10 @@
 // Throwaway spike for ADR-001 (see docs/design.md, "Spike").
-// Answers, against a real iPhone over USB:
-//   1. Do highFramerate / timeLapse / sidecarFiles carry real values for iPhone media?
-//   2. Does unsandboxed ImageCaptureCore trigger any TCC prompt? (observe while running)
-//   3. How does an iCloud-offloaded (thumbnail-only) item present itself?
-// Read-only: opens a session and lists the catalog. Never writes to or deletes from the device.
+// Phase 1: list the catalog and probe lock/TCC/offload behavior.
+// Phase 2: download ONE recent video, verify byte size, and read codec + color
+//          tags via AVFoundation (Rec.2100 HLG check without Resolve).
+// Read-only toward the phone: downloading copies a file, never modifies or deletes.
 
+import AVFoundation
 import Foundation
 import ImageCaptureCore
 
@@ -19,9 +19,26 @@ func fmtSize(_ bytes: off_t) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
 }
 
-final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
+func fourCC(_ code: FourCharCode) -> String {
+    let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xff) }
+    return String(bytes: bytes, encoding: .macOSRoman) ?? "\(code)"
+}
+
+final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate, ICCameraDeviceDownloadDelegate {
     let browser = ICDeviceBrowser()
     var camera: ICCameraDevice?
+    var sessionOpen = false
+    var catalogDone = false
+    var downloadTarget: ICCameraFile?
+    let downloadDir = URL(fileURLWithPath: "spike-downloads", isDirectory: true)
+
+    func scheduleRetry() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, let cam = self.camera, !self.sessionOpen else { return }
+            log("Retrying session open… (isAccessRestrictedAppleDevice: \(cam.isAccessRestrictedAppleDevice))")
+            cam.requestOpenSession()
+        }
+    }
 
     func start() {
         log("Cablecar spike starting. Watch for any TCC/permission prompt now (fact #2).")
@@ -37,9 +54,11 @@ final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
                 log("No camera device after 15s. Still waiting (Ctrl-C to abort)…")
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
-            log("Timed out after 300s without a complete content catalog.")
-            exit(2)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+            if self?.catalogDone != true {
+                log("Timed out after 300s without a complete content catalog.")
+                exit(2)
+            }
         }
     }
 
@@ -74,9 +93,17 @@ final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
     // MARK: ICDeviceDelegate
 
     func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
-        if let error { log("didOpenSession ERROR: \(error)"); exit(1) }
+        if let error {
+            let code = (error as NSError).code
+            log("didOpenSession error (code \(code)): \(error.localizedDescription)")
+            log("Waiting for unlock/trust — will retry when the access restriction lifts (and every 10s as fallback). Unlock the phone with the cable connected; re-plug if no Trust prompt appears.")
+            scheduleRetry()
+            return
+        }
+        sessionOpen = true
         log("Session open.")
         guard let cam = camera else { return }
+        log("  capabilities now: \(cam.capabilities)")
         if cam.capabilities.contains(ICDeviceCapability.cameraDeviceSupportsHEIF.rawValue) {
             cam.mediaPresentation = .originalAssets
             log("mediaPresentation set to .originalAssets (device supports HEIF).")
@@ -95,10 +122,11 @@ final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
     // MARK: ICCameraDeviceDelegate
 
     func deviceDidBecomeReady(withCompleteContentCatalog device: ICCameraDevice) {
+        guard !catalogDone else { return }
+        catalogDone = true
         log("Complete content catalog ready.")
         dumpCatalog(device)
-        device.requestCloseSession()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { exit(0) }
+        startDownloadTest(device)
     }
 
     func cameraDevice(_ camera: ICCameraDevice, didAdd items: [ICCameraItem]) {}
@@ -113,12 +141,16 @@ final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
     func cameraDevice(_ camera: ICCameraDevice, didReceivePTPEvent eventData: Data) {}
     func cameraDeviceDidRemoveAccessRestriction(_ device: ICDevice) {
         log("Access restriction removed (phone unlocked/trusted).")
+        if let cam = camera, !sessionOpen {
+            log("Reopening session…")
+            cam.requestOpenSession()
+        }
     }
     func cameraDeviceDidEnableAccessRestriction(_ device: ICDevice) {
         log("Access restriction ENABLED (phone locked?).")
     }
 
-    // MARK: Catalog dump
+    // MARK: Phase 1 — catalog dump
 
     func dumpCatalog(_ device: ICCameraDevice) {
         let files = (device.mediaFiles ?? []).compactMap { $0 as? ICCameraFile }
@@ -142,12 +174,20 @@ final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
             print("  \(uti): \(n)")
         }
 
+        print("\n-- Counts by extension --")
+        var extCounts: [String: Int] = [:]
+        for f in files {
+            extCounts[(name(of: f) as NSString).pathExtension.uppercased(), default: 0] += 1
+        }
+        for (ext, n) in extCounts.sorted(by: { $0.value > $1.value }) {
+            print("  \(ext.isEmpty ? "(none)" : ext): \(n)")
+        }
+
         print("\n-- Sample (first 25 files) --")
         for f in files.prefix(25) {
-            let name = f.originalFilename ?? f.name ?? "?"
             let date = f.exifCreationDate ?? f.fileCreationDate
             let sidecars = (f.sidecarFiles ?? []).compactMap { $0.name }
-            var line = "  \(name)  \(f.uti ?? "?")  \(fmtSize(f.fileSize))"
+            var line = "  \(name(of: f))  \(f.uti ?? "?")  \(fmtSize(f.fileSize))"
             line += "  created=\(date.map { "\($0)" } ?? "nil")"
             if f.duration > 0 { line += String(format: "  dur=%.1fs", f.duration) }
             if f.highFramerate { line += "  [SLOWMO]" }
@@ -169,14 +209,96 @@ final class Spike: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate {
         print("rather than presented as small files. Either way v1 needs a detection story.\n")
 
         print("-- Live Photo pairing check --")
-        let movBases = Set(files.filter { ($0.uti ?? "").contains("movie") || name(of: $0).hasSuffix(".MOV") }
+        let movBases = Set(files.filter { name(of: $0).uppercased().hasSuffix(".MOV") }
             .map { baseName(name(of: $0)) })
         let pairedStills = files.filter {
-            let n = name(of: $0)
-            return (n.hasSuffix(".HEIC") || n.hasSuffix(".JPG")) && movBases.contains(baseName(n))
+            let n = name(of: $0).uppercased()
+            return (n.hasSuffix(".HEIC") || n.hasSuffix(".JPG")) && movBases.contains(baseName(name(of: $0)))
         }
         print("  stills sharing a basename with a .MOV: \(pairedStills.count)")
-        print("  (if sidecarFiles above were empty but this count is high, Live Photo pairing is by basename, not sidecar)\n")
+        print("  (sidecarFiles is the authoritative pairing; this is the fallback heuristic)\n")
+    }
+
+    // MARK: Phase 2 — download one video and verify
+
+    func startDownloadTest(_ device: ICCameraDevice) {
+        let files = (device.mediaFiles ?? []).compactMap { $0 as? ICCameraFile }
+        func date(_ f: ICCameraFile) -> Date { f.exifCreationDate ?? f.fileCreationDate ?? .distantPast }
+        let videos = files
+            .filter { name(of: $0).uppercased().hasSuffix(".MOV") && $0.fileSize > 1_000_000 }
+            .sorted { date($0) > date($1) }
+        // Camera-captured clips (IMG_*.MOV) are the ones that should be HEVC/HDR;
+        // UUID-named clips are often saved/shared media that was born H.264.
+        let cameraClips = videos.filter { name(of: $0).uppercased().hasPrefix("IMG_") }
+        let pool = cameraClips.isEmpty ? videos : cameraClips
+        // Most recent under 100 MB keeps the test quick; fall back to the newest one.
+        guard let target = pool.first(where: { $0.fileSize < 100_000_000 }) ?? pool.first else {
+            log("No .MOV found to download-test; closing.")
+            finish(device)
+            return
+        }
+        downloadTarget = target
+        log("  target identity: name=\(target.name ?? "nil") originalFilename=\(target.originalFilename ?? "nil") createdFilename=\(target.createdFilename ?? "nil")")
+        try? FileManager.default.createDirectory(at: downloadDir, withIntermediateDirectories: true)
+        log("PHASE 2: downloading \(name(of: target)) (\(fmtSize(target.fileSize))) to \(downloadDir.path)/ …")
+        device.requestDownloadFile(
+            target,
+            options: [.downloadsDirectoryURL: downloadDir, .overwrite: true],
+            downloadDelegate: self,
+            didDownloadSelector: #selector(didDownloadFile(_:error:options:contextInfo:)),
+            contextInfo: nil
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
+            log("Download test timed out after 300s.")
+            exit(3)
+        }
+    }
+
+    @objc func didDownloadFile(_ file: ICCameraFile, error: Error?, options: [String: Any], contextInfo: UnsafeMutableRawPointer?) {
+        if let error {
+            log("Download ERROR: \(error)")
+            if let cam = camera { finish(cam) }
+            return
+        }
+        let savedName = (options[ICDownloadOption.savedFilename.rawValue] as? String) ?? name(of: file)
+        let url = downloadDir.appendingPathComponent(savedName)
+        let onDisk = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? -1
+        log("Downloaded: \(savedName)")
+        log("  size on phone: \(file.fileSize) bytes, on disk: \(onDisk ?? -1) bytes → \(Int64(file.fileSize) == onDisk ? "MATCH ✅" : "MISMATCH ❌")")
+        Task {
+            await analyze(url)
+            if let cam = self.camera { self.finish(cam) }
+        }
+    }
+
+    func analyze(_ url: URL) async {
+        log("AVFoundation analysis of \(url.lastPathComponent):")
+        let asset = AVURLAsset(url: url)
+        do {
+            let tracks = try await asset.load(.tracks)
+            for track in tracks where track.mediaType == .video {
+                let descs = try await track.load(.formatDescriptions)
+                for desc in descs {
+                    let codec = fourCC(CMFormatDescriptionGetMediaSubType(desc))
+                    let dims = CMVideoFormatDescriptionGetDimensions(desc)
+                    let primaries = CMFormatDescriptionGetExtension(desc, extensionKey: kCMFormatDescriptionExtension_ColorPrimaries) as? String ?? "?"
+                    let transfer = CMFormatDescriptionGetExtension(desc, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String ?? "?"
+                    let matrix = CMFormatDescriptionGetExtension(desc, extensionKey: kCMFormatDescriptionExtension_YCbCrMatrix) as? String ?? "?"
+                    log("  video track: codec=\(codec) \(dims.width)x\(dims.height)")
+                    log("    colorPrimaries=\(primaries)")
+                    log("    transferFunction=\(transfer)  ← 'ITU_R_2100_HLG' means HDR intact (fact for acceptance criterion)")
+                    log("    yCbCrMatrix=\(matrix)")
+                    log("  VERDICT: codec \(codec == "hvc1" || codec == "hev1" ? "is HEVC ✅" : "is NOT HEVC (\(codec)) — check mediaPresentation/Keep Originals ❌")")
+                }
+            }
+        } catch {
+            log("  AVFoundation analysis failed: \(error)")
+        }
+    }
+
+    func finish(_ device: ICCameraDevice) {
+        device.requestCloseSession()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { exit(0) }
     }
 
     private func name(of f: ICCameraFile) -> String { f.originalFilename ?? f.name ?? "?" }
