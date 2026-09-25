@@ -21,6 +21,9 @@ final class AppModel {
     var filter: MediaFilter = .all {
         didSet { rebuildVisibleItems() }
     }
+    var orientationFilter: OrientationFilter = .any {
+        didSet { rebuildVisibleItems() }
+    }
     var sortKey: SortKey = .date {
         didSet { rebuildVisibleItems() }
     }
@@ -139,7 +142,8 @@ final class AppModel {
     var notOnDeviceCount: Int { items.filter { !$0.isOnDevice }.count }
 
     private func rebuildVisibleItems() {
-        visibleItems = MediaSorter.sort(items.filter(filter.matches), by: sortKey, ascending: sortAscending)
+        let filtered = items.filter { filter.matches($0) && orientationFilter.matches($0) }
+        visibleItems = MediaSorter.sort(filtered, by: sortKey, ascending: sortAscending)
     }
 }
 

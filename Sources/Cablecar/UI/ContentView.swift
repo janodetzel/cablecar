@@ -39,6 +39,20 @@ struct ContentView: View {
             }
             .pickerStyle(.segmented)
 
+            // A Menu instead of a bare toolbar Picker: the latter renders an
+            // empty label until first clicked.
+            Menu {
+                Picker("Orientation", selection: $model.orientationFilter) {
+                    ForEach(OrientationFilter.allCases) { orientation in
+                        Text(orientation.rawValue).tag(orientation)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text(model.orientationFilter.rawValue)
+            }
+            .help("Filter by media orientation")
+
             Menu {
                 Picker("Sort by", selection: $model.sortKey) {
                     ForEach(SortKey.allCases) { key in
@@ -59,7 +73,7 @@ struct ContentView: View {
             } label: {
                 Label(
                     model.squareThumbnails ? "Full Aspect Ratio" : "Square Thumbnails",
-                    systemImage: model.squareThumbnails ? "rectangle.arrowtriangle.2.outward" : "square.grid.2x2"
+                    systemImage: model.squareThumbnails ? "rectangle.arrowtriangle.2.inward" : "rectangle.arrowtriangle.2.outward"
                 )
             }
             .help(model.squareThumbnails

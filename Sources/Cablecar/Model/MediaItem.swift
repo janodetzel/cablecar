@@ -43,9 +43,32 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     /// Such items are greyed out, unselectable, and never imported.
     let isOnDevice: Bool
     let sidecars: [Sidecar]
+    /// Display-oriented pixel dimensions (EXIF rotation already applied);
+    /// 0 when the source doesn't report them.
+    let pixelWidth: Int
+    let pixelHeight: Int
 
     var fileExtension: String { (displayName as NSString).pathExtension.uppercased() }
     var totalSizeBytes: Int64 { sidecars.reduce(sizeBytes) { $0 + $1.sizeBytes } }
+
+    var orientation: MediaOrientation {
+        guard pixelWidth > 0, pixelHeight > 0 else { return .unknown }
+        if pixelWidth > pixelHeight { return .landscape }
+        if pixelWidth < pixelHeight { return .portrait }
+        return .square
+    }
+}
+
+enum MediaOrientation: Sendable {
+    case landscape, portrait, square, unknown
+}
+
+enum ExifDimensionMapper {
+    /// EXIF orientations 5–8 rotate the stored pixels by 90°, so the stored
+    /// width/height are swapped relative to how the media is displayed.
+    static func displaySize(width: Int, height: Int, exifOrientation: Int) -> (width: Int, height: Int) {
+        (5...8).contains(exifOrientation) ? (height, width) : (width, height)
+    }
 }
 
 enum MediaKindClassifier {
@@ -90,6 +113,25 @@ enum MediaFilter: String, CaseIterable, Identifiable {
         case .slowMo: return item.kind == .slowMoVideo
         case .timeLapse: return item.kind == .timeLapseVideo
         case .livePhotos: return item.kind == .livePhoto
+        }
+    }
+}
+
+/// Second, independent filter axis (composes with `MediaFilter`), so e.g.
+/// "Videos + Landscape" works. Square and unknown-size items only appear
+/// under "Any".
+enum OrientationFilter: String, CaseIterable, Identifiable {
+    case any = "Any Orientation"
+    case landscape = "Landscape"
+    case portrait = "Portrait"
+
+    var id: String { rawValue }
+
+    func matches(_ item: MediaItem) -> Bool {
+        switch self {
+        case .any: return true
+        case .landscape: return item.orientation == .landscape
+        case .portrait: return item.orientation == .portrait
         }
     }
 }

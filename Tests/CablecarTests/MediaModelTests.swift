@@ -57,10 +57,14 @@ final class MediaKindClassifierTests: XCTestCase {
 }
 
 final class MediaFilterAndSortTests: XCTestCase {
-    private func item(name: String, kind: MediaKind, size: Int64 = 1, date: Date? = nil) -> MediaItem {
+    private func item(
+        name: String, kind: MediaKind, size: Int64 = 1, date: Date? = nil,
+        width: Int = 0, height: Int = 0
+    ) -> MediaItem {
         MediaItem(
             id: name, displayName: name, kind: kind, sizeBytes: size,
-            creationDate: date, duration: nil, isOnDevice: true, sidecars: []
+            creationDate: date, duration: nil, isOnDevice: true, sidecars: [],
+            pixelWidth: width, pixelHeight: height
         )
     }
 
@@ -99,6 +103,40 @@ final class MediaFilterAndSortTests: XCTestCase {
             MediaSorter.sort([small, big], by: .name, ascending: true).map(\.displayName),
             ["a.MOV", "b.MOV"]
         )
+    }
+
+    func testOrientationFilter() {
+        let landscape = item(name: "land.MOV", kind: .video, width: 3840, height: 2160)
+        let portrait = item(name: "port.HEIC", kind: .photo, width: 3024, height: 4032)
+        let square = item(name: "square.HEIC", kind: .photo, width: 2000, height: 2000)
+        let unknown = item(name: "unknown.HEIC", kind: .photo)
+        let items = [landscape, portrait, square, unknown]
+
+        XCTAssertEqual(items.filter(OrientationFilter.landscape.matches).map(\.displayName), ["land.MOV"])
+        XCTAssertEqual(items.filter(OrientationFilter.portrait.matches).map(\.displayName), ["port.HEIC"])
+        XCTAssertEqual(items.filter(OrientationFilter.any.matches).count, 4)
+    }
+
+    func testExifRotationSwapsDisplayDimensions() {
+        // Orientations 1–4 keep stored dimensions; 5–8 are 90° rotations.
+        let stored = (width: 4032, height: 3024)
+        for exif in 1...4 {
+            let size = ExifDimensionMapper.displaySize(
+                width: stored.width, height: stored.height, exifOrientation: exif)
+            XCTAssertEqual(size.width, 4032, "exif \(exif)")
+            XCTAssertEqual(size.height, 3024, "exif \(exif)")
+        }
+        for exif in 5...8 {
+            let size = ExifDimensionMapper.displaySize(
+                width: stored.width, height: stored.height, exifOrientation: exif)
+            XCTAssertEqual(size.width, 3024, "exif \(exif)")
+            XCTAssertEqual(size.height, 4032, "exif \(exif)")
+        }
+        // A portrait-shot photo stored landscape with a 90° flag filters as portrait.
+        let rotated = ExifDimensionMapper.displaySize(width: 4032, height: 3024, exifOrientation: 6)
+        let portraitItem = item(name: "p.HEIC", kind: .photo, width: rotated.width, height: rotated.height)
+        XCTAssertEqual(portraitItem.orientation, .portrait)
+        XCTAssertTrue(OrientationFilter.portrait.matches(portraitItem))
     }
 
     func testSortByTypeGroupsByExtension() {

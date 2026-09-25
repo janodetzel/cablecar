@@ -188,6 +188,9 @@ final class USBMediaSource: NSObject, MediaSource {
             isTimeLapse: file.timeLapse,
             hasVideoSidecar: !sidecars.isEmpty
         )
+        let displaySize = ExifDimensionMapper.displaySize(
+            width: file.width, height: file.height, exifOrientation: Int(file.orientation.rawValue)
+        )
         return MediaItem(
             id: id(of: file),
             displayName: name,
@@ -196,7 +199,9 @@ final class USBMediaSource: NSObject, MediaSource {
             creationDate: file.exifCreationDate ?? file.fileCreationDate,
             duration: file.duration > 0 ? file.duration : nil,
             isOnDevice: OffloadHeuristic.isOnDevice(sizeBytes: Int64(file.fileSize)),
-            sidecars: sidecars
+            sidecars: sidecars,
+            pixelWidth: displaySize.width,
+            pixelHeight: displaySize.height
         )
     }
 

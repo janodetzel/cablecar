@@ -17,7 +17,9 @@ final class ImportPlannerTests: XCTestCase {
             creationDate: Date(timeIntervalSince1970: 1_000_000),
             duration: nil,
             isOnDevice: onDevice,
-            sidecars: sidecars
+            sidecars: sidecars,
+            pixelWidth: 0,
+            pixelHeight: 0
         )
     }
 

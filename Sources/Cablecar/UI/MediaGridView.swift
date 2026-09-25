@@ -29,7 +29,7 @@ struct MediaGridView: View {
 
     private var emptyFilterState: some View {
         VStack(spacing: 8) {
-            Text("No \(model.filter.rawValue.lowercased()) items")
+            Text(emptyFilterText)
                 .font(.title3)
                 .foregroundStyle(.secondary)
             if model.filter == .slowMo || model.filter == .timeLapse {
@@ -41,6 +41,18 @@ struct MediaGridView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 120)
+    }
+
+    private var emptyFilterText: String {
+        var parts: [String] = []
+        if model.orientationFilter != .any {
+            parts.append(model.orientationFilter.rawValue.lowercased())
+        }
+        if model.filter != .all {
+            parts.append(model.filter.rawValue.lowercased())
+        }
+        let what = parts.isEmpty ? "items" : parts.joined(separator: " ") + " items"
+        return "No \(what)"
     }
 }
 
