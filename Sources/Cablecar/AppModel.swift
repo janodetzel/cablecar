@@ -117,7 +117,17 @@ final class AppModel {
                     return false
                 }
                 if keyCode == 49, modifiers.isEmpty, !isRepeat {  // Space
-                    guard preview.isPresented || inspectedItem != nil else { return false }
+                    if preview.isPresented {
+                        // Space controls video playback; Esc closes. For
+                        // images, space still closes, Finder-style.
+                        if preview.hasVideoPlayer {
+                            preview.togglePlayback()
+                        } else {
+                            preview.dismiss(source: source)
+                        }
+                        return true
+                    }
+                    guard inspectedItem != nil else { return false }
                     togglePreview()
                     return true
                 }
@@ -259,6 +269,7 @@ final class AppModel {
             source.requestMetadata(for: item.id)
         }
         if preview.isPresented {
+            preview.setPrefetchCandidates(previewNeighbors(of: item))
             preview.load(item, source: source, importRunning: importEngine.isRunning)
         }
     }
@@ -266,7 +277,21 @@ final class AppModel {
     // MARK: - Preview & arrow-key navigation
 
     func togglePreview() {
+        if let item = inspectedItem, !preview.isPresented {
+            preview.setPrefetchCandidates(previewNeighbors(of: item))
+        }
         preview.toggle(inspectedItem, source: source, importRunning: importEngine.isRunning)
+    }
+
+    /// The items arrow keys reach next — warmed in the preview cache so
+    /// navigation feels instant. Horizontal neighbours first, then vertical.
+    private func previewNeighbors(of item: MediaItem) -> [MediaItem] {
+        guard let index = visibleItems.firstIndex(where: { $0.id == item.id }) else { return [] }
+        let columns = max(gridColumns, 1)
+        return [1, -1, columns, -columns].compactMap { offset in
+            let target = index + offset
+            return visibleItems.indices.contains(target) ? visibleItems[target] : nil
+        }
     }
 
     enum NavigationDirection {

@@ -12,6 +12,9 @@ struct ContentView: View {
                 SourceStatusView(state: model.sourceState)
             }
         }
+        .safeAreaInset(edge: .bottom) { FooterBar() }
+        // Overlay after the footer inset so an open preview covers it too;
+        // the inspector stays visible beside the preview.
         .overlay {
             if model.preview.isPresented {
                 PreviewOverlay()
@@ -23,7 +26,6 @@ struct ContentView: View {
         }
         .frame(minWidth: 720, minHeight: 480)
         .toolbar { toolbarContent }
-        .safeAreaInset(edge: .bottom) { FooterBar() }
         .sheet(isPresented: $model.showImportSheet) { ImportSheet() }
         .navigationTitle("Cablecar")
         .navigationSubtitle(subtitle)
