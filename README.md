@@ -1,1 +1,1 @@
-# ios-media-importer
+# Cablecar - iOS media import tool for macOS
