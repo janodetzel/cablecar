@@ -53,11 +53,11 @@ Never coming: deletion from the phone.
 
 ## Spike (before app code)
 
-Throwaway CLI against the real iPhone to verify three facts; findings amend ADR-001:
+Throwaway CLI (`spike/`, run with `swift run` inside that folder with the iPhone connected and unlocked) to verify three facts; findings amend ADR-001:
 
-1. Exact `ICCameraFile` property names in the current SDK for high frame rate (slow-mo), time-lapse, and sidecar files (Live Photo video part).
-2. Whether unsandboxed ImageCaptureCore triggers any entitlement or TCC prompt.
-3. How an iCloud-offloaded (thumbnail-only) item presents itself over the cable — needed for reliable "not on device" detection.
+1. ~~Exact `ICCameraFile` property names~~ **Confirmed from the macOS 26 SDK headers:** `highFramerate`, `timeLapse`, `sidecarFiles` (plus useful extras: `fingerprint`, `burstUUID`, `exifCreationDate`, `duration`, `originalFilename`). Caveat: `mediaPresentation` is only available when the device reports the `ICDeviceCapability.cameraDeviceSupportsHEIF` capability — the spike prints whether the iPhone does. Still to verify on hardware: whether the slow-mo/time-lapse flags and sidecar links actually carry values over PTP.
+2. Whether unsandboxed ImageCaptureCore triggers any entitlement or TCC prompt — observe while the spike runs.
+3. How an iCloud-offloaded (thumbnail-only) item presents itself over the cable — needed for reliable "not on device" detection. The spike lists files under 100 KB and prints the catalog count to compare against the Photos app's on-phone count (offloaded items may be presented small or hidden entirely).
 
 ## Acceptance criteria (v1)
 
