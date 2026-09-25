@@ -20,6 +20,8 @@ protocol MediaSourceDelegate: AnyObject {
     func mediaSourceDidChangeState(_ source: any MediaSource)
     func mediaSourceDidUpdateItems(_ source: any MediaSource)
     func mediaSource(_ source: any MediaSource, didLoadThumbnail thumbnail: CGImage?, for itemID: MediaItem.ID)
+    /// `sections` is nil when the device reported no metadata for the item.
+    func mediaSource(_ source: any MediaSource, didLoadMetadata sections: [MetadataSection]?, for itemID: MediaItem.ID)
 }
 
 /// Abstraction over where media comes from (ADR-001). v1 ships only
@@ -38,6 +40,10 @@ protocol MediaSource: AnyObject {
     func stop()
 
     func requestThumbnail(for itemID: MediaItem.ID)
+
+    /// Asynchronously fetches the item's full metadata (EXIF etc.); delivered
+    /// via `mediaSource(_:didLoadMetadata:for:)`.
+    func requestMetadata(for itemID: MediaItem.ID)
 
     /// Copies one file (an item or one of its sidecars, addressed by id) into
     /// `directory` under exactly `filename`. Reports (downloadedBytes,

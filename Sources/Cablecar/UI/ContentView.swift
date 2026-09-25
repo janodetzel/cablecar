@@ -12,6 +12,10 @@ struct ContentView: View {
                 SourceStatusView(state: model.sourceState)
             }
         }
+        .inspector(isPresented: $model.showInspector) {
+            MetadataSidebar()
+                .inspectorColumnWidth(min: 220, ideal: 280, max: 400)
+        }
         .frame(minWidth: 720, minHeight: 480)
         .toolbar { toolbarContent }
         .safeAreaInset(edge: .bottom) { FooterBar() }
@@ -106,6 +110,15 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canImport)
+        }
+
+        ToolbarItem {
+            Button {
+                model.showInspector.toggle()
+            } label: {
+                Label("Info", systemImage: "info.circle")
+            }
+            .help(model.showInspector ? "Hide item info" : "Show item info")
         }
     }
 

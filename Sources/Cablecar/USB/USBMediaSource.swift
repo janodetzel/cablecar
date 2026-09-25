@@ -33,6 +33,7 @@ final class USBMediaSource: NSObject, MediaSource {
     /// Reverse lookup for thumbnail callbacks.
     private var idsByObject: [ObjectIdentifier: String] = [:]
     private var thumbnailRequested: Set<String> = []
+    private var metadataRequested: Set<String> = []
 
     private struct ActiveDownload {
         let file: ICCameraFile
@@ -64,6 +65,12 @@ final class USBMediaSource: NSObject, MediaSource {
         guard let file = filesByID[itemID], !thumbnailRequested.contains(itemID) else { return }
         thumbnailRequested.insert(itemID)
         file.requestThumbnail()
+    }
+
+    func requestMetadata(for itemID: MediaItem.ID) {
+        guard let file = filesByID[itemID], !metadataRequested.contains(itemID) else { return }
+        metadataRequested.insert(itemID)
+        file.requestMetadata()
     }
 
     func downloadFile(
@@ -273,6 +280,7 @@ extension USBMediaSource: ICDeviceBrowserDelegate {
             filesByID = [:]
             idsByObject = [:]
             thumbnailRequested = []
+            metadataRequested = []
             items = []
             delegate?.mediaSourceDidUpdateItems(self)
             state = .waitingForDevice
@@ -349,7 +357,13 @@ extension USBMediaSource: ICCameraDeviceDelegate {
 
     nonisolated func cameraDevice(
         _ camera: ICCameraDevice, didReceiveMetadata metadata: [AnyHashable: Any]?, for item: ICCameraItem, error: Error?
-    ) {}
+    ) {
+        onMain { [self] in
+            guard let file = item as? ICCameraFile, let itemID = idsByObject[ObjectIdentifier(file)] else { return }
+            if metadata == nil { metadataRequested.remove(itemID) }  // allow a retry
+            delegate?.mediaSource(self, didLoadMetadata: metadata.map(MetadataFormatter.sections(from:)), for: itemID)
+        }
+    }
 
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didRenameItems items: [ICCameraItem]) {}
 

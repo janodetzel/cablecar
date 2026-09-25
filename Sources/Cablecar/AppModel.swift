@@ -38,6 +38,21 @@ final class AppModel {
     }
     private static let squareThumbnailsDefaultsKey = "squareThumbnails"
 
+    var showInspector: Bool {
+        didSet { UserDefaults.standard.set(showInspector, forKey: Self.showInspectorDefaultsKey) }
+    }
+    private static let showInspectorDefaultsKey = "showInspector"
+
+    /// The item whose details the inspector shows: the last one clicked.
+    var inspectedItemID: MediaItem.ID?
+    /// Device metadata per item, filled lazily on inspection. `nil` = not
+    /// loaded yet; `[]` = the device reported none.
+    private(set) var metadata: [MediaItem.ID: [MetadataSection]] = [:]
+
+    var inspectedItem: MediaItem? {
+        inspectedItemID.flatMap { id in items.first { $0.id == id } }
+    }
+
     private(set) var visibleItems: [MediaItem] = []
 
     var destination: URL? {
@@ -52,6 +67,7 @@ final class AppModel {
     init(source: any MediaSource) {
         self.source = source
         squareThumbnails = UserDefaults.standard.object(forKey: Self.squareThumbnailsDefaultsKey) as? Bool ?? true
+        showInspector = UserDefaults.standard.object(forKey: Self.showInspectorDefaultsKey) as? Bool ?? false
         if let path = UserDefaults.standard.string(forKey: Self.destinationDefaultsKey) {
             destination = URL(fileURLWithPath: path, isDirectory: true)
         }
@@ -61,6 +77,22 @@ final class AppModel {
     func start() { source.start() }
 
     // MARK: - Selection
+    //
+    // Photos-style two-mode model. Browse mode (nothing selected): clicking a
+    // tile only inspects it; selection starts via the hover checkbox or a
+    // shift-click. Selection mode (anything selected): plain clicks toggle,
+    // shift-clicks extend a range from the last-clicked anchor, and the
+    // inspector shows a selection summary instead of metadata.
+
+    var isSelectionMode: Bool { !selection.isEmpty }
+
+    /// Range anchor for shift-clicks: the last tile whose selection state was
+    /// changed by a direct click.
+    private var selectionAnchorID: MediaItem.ID?
+    /// What the last shift-click selected. The range is "live" (Finder-style):
+    /// the next shift-click from the same anchor replaces it, so clicking
+    /// inside the range shrinks it.
+    private var shiftRangeIDs: Set<MediaItem.ID> = []
 
     var selectedItems: [MediaItem] {
         items.filter { selection.contains($0.id) }
@@ -70,6 +102,19 @@ final class AppModel {
         selectedItems.reduce(0) { $0 + $1.totalSizeBytes }
     }
 
+    /// A plain click on the tile body.
+    func handleClick(_ item: MediaItem, shiftPressed: Bool) {
+        if shiftPressed {
+            extendSelection(to: item)
+        } else if isSelectionMode {
+            toggleSelection(of: item)
+        } else {
+            inspect(item)
+        }
+    }
+
+    /// The hover checkbox: always toggles selection, entering selection mode
+    /// from browse mode.
     func toggleSelection(of item: MediaItem) {
         guard item.isOnDevice else { return }
         if selection.contains(item.id) {
@@ -77,21 +122,64 @@ final class AppModel {
         } else {
             selection.insert(item.id)
         }
+        selectionAnchorID = selection.isEmpty ? nil : item.id
+        shiftRangeIDs = []
+    }
+
+    /// Shift-click: selects every on-device item between the anchor and
+    /// `item` in the current visible order, replacing whatever the previous
+    /// shift-click from that anchor selected (so a shift-click inside the
+    /// current range shrinks it, like Finder). Without an anchor it just
+    /// starts the selection at `item`.
+    private func extendSelection(to item: MediaItem) {
+        guard item.isOnDevice else { return }
+        guard
+            let anchorID = selectionAnchorID,
+            let anchorIndex = visibleItems.firstIndex(where: { $0.id == anchorID }),
+            let itemIndex = visibleItems.firstIndex(where: { $0.id == item.id })
+        else {
+            selection.insert(item.id)
+            selectionAnchorID = item.id
+            shiftRangeIDs = []
+            return
+        }
+        let range = min(anchorIndex, itemIndex)...max(anchorIndex, itemIndex)
+        let newRange = Set(visibleItems[range].filter(\.isOnDevice).map(\.id))
+        selection.subtract(shiftRangeIDs)
+        selection.formUnion(newRange)
+        shiftRangeIDs = newRange
     }
 
     /// Selects everything currently visible — skipping not-on-device items,
     /// per design.
     func selectAllVisible() {
         selection = Set(visibleItems.filter(\.isOnDevice).map(\.id))
+        shiftRangeIDs = []
     }
 
-    func deselectAll() { selection = [] }
+    func deselectAll() {
+        selection = []
+        selectionAnchorID = nil
+        shiftRangeIDs = []
+    }
 
     // MARK: - Thumbnails
 
     func requestThumbnail(for itemID: MediaItem.ID) {
         guard thumbnails[itemID] == nil else { return }
         source.requestThumbnail(for: itemID)
+    }
+
+    // MARK: - Inspection
+
+    /// Marks an item as inspected (works for not-on-device items too) and
+    /// lazily fetches its device metadata.
+    func inspect(_ item: MediaItem) {
+        inspectedItemID = item.id
+        requestThumbnail(for: item.id)
+        if metadata[item.id] == nil {
+            source.requestMetadata(for: item.id)
+        }
     }
 
     // MARK: - Import
@@ -157,10 +245,22 @@ extension AppModel: MediaSourceDelegate {
         let ids = Set(items.map(\.id))
         selection.formIntersection(ids)
         thumbnails = thumbnails.filter { ids.contains($0.key) }
+        metadata = metadata.filter { ids.contains($0.key) }
+        if let inspectedItemID, !ids.contains(inspectedItemID) {
+            self.inspectedItemID = nil
+        }
+        if let selectionAnchorID, !ids.contains(selectionAnchorID) {
+            self.selectionAnchorID = nil
+        }
+        shiftRangeIDs.formIntersection(ids)
         rebuildVisibleItems()
     }
 
     func mediaSource(_ source: any MediaSource, didLoadThumbnail thumbnail: CGImage?, for itemID: MediaItem.ID) {
         if let thumbnail { thumbnails[itemID] = thumbnail }
+    }
+
+    func mediaSource(_ source: any MediaSource, didLoadMetadata sections: [MetadataSection]?, for itemID: MediaItem.ID) {
+        metadata[itemID] = sections ?? []
     }
 }

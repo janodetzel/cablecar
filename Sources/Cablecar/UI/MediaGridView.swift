@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MediaGridView: View {
@@ -16,9 +17,13 @@ struct MediaGridView: View {
                             item: item,
                             thumbnail: model.thumbnails[item.id],
                             isSelected: model.selection.contains(item.id),
-                            squareThumbnails: model.squareThumbnails
+                            isInspected: !model.isSelectionMode && model.inspectedItemID == item.id,
+                            squareThumbnails: model.squareThumbnails,
+                            onToggleSelection: { model.toggleSelection(of: item) }
                         )
-                        .onTapGesture { model.toggleSelection(of: item) }
+                        .onTapGesture {
+                            model.handleClick(item, shiftPressed: NSEvent.modifierFlags.contains(.shift))
+                        }
                         .onAppear { model.requestThumbnail(for: item.id) }
                     }
                 }
@@ -60,7 +65,11 @@ struct MediaCell: View {
     let item: MediaItem
     let thumbnail: CGImage?
     let isSelected: Bool
+    let isInspected: Bool
     let squareThumbnails: Bool
+    let onToggleSelection: () -> Void
+
+    @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -71,13 +80,14 @@ struct MediaCell: View {
                 .overlay { thumbnailView }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .contentShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(alignment: .topTrailing) { selectionBadge }
+                .overlay(alignment: .topTrailing) { selectionCheckbox }
                 .overlay(alignment: .bottomLeading) { kindBadge }
                 .overlay(alignment: .center) { notOnDeviceBadge }
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 3)
+                        .strokeBorder(borderColor, lineWidth: 3)
                 }
+                .onHover { isHovering = $0 }
 
             Text(item.displayName)
                 .font(.caption)
@@ -116,15 +126,29 @@ struct MediaCell: View {
         }
     }
 
+    /// Photos-style checkbox: visible on hover (and always when selected).
+    /// Clicking it selects for import without going through the tile click,
+    /// which only inspects in browse mode.
     @ViewBuilder
-    private var selectionBadge: some View {
-        if isSelected {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, Color.accentColor)
-                .padding(6)
+    private var selectionCheckbox: some View {
+        if item.isOnDevice, isSelected || isHovering {
+            Button(action: onToggleSelection) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, isSelected ? Color.accentColor : Color.black.opacity(0.35))
+                    .shadow(radius: 1)
+            }
+            .buttonStyle(.plain)
+            .padding(6)
+            .help(isSelected ? "Remove from import selection" : "Select for import")
         }
+    }
+
+    private var borderColor: Color {
+        if isSelected { return .accentColor }
+        if isInspected { return .secondary.opacity(0.5) }
+        return .clear
     }
 
     @ViewBuilder
