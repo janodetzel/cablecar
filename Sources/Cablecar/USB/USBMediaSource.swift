@@ -36,12 +36,18 @@ final class USBMediaSource: NSObject, MediaSource {
     private var metadataRequested: Set<String> = []
 
     private struct ActiveDownload {
+        /// Matches the request's `contextInfo` so a late completion of an
+        /// already-cancelled download can never resume a newer request's
+        /// continuation (the framework delivers -9937 asynchronously after
+        /// `cancelDownload`, by which time the next download may be active).
+        let token: Int
         let file: ICCameraFile
         let directory: URL
         let continuation: CheckedContinuation<URL, Error>
         let progress: @MainActor (Int64, Int64) -> Void
     }
     private var activeDownload: ActiveDownload?
+    private var nextDownloadToken = 1
 
     private var deviceName: String { camera?.name ?? "iPhone" }
 
@@ -83,9 +89,11 @@ final class USBMediaSource: NSObject, MediaSource {
         guard let camera, sessionOpen else { throw MediaSourceError.deviceNotReady }
         guard let file = filesByID[fileID] else { throw MediaSourceError.fileNotAvailable(filename) }
 
+        let token = nextDownloadToken
+        nextDownloadToken += 1
         return try await withCheckedThrowingContinuation { continuation in
             activeDownload = ActiveDownload(
-                file: file, directory: directory, continuation: continuation, progress: progress
+                token: token, file: file, directory: directory, continuation: continuation, progress: progress
             )
             camera.requestDownloadFile(
                 file,
@@ -96,7 +104,7 @@ final class USBMediaSource: NSObject, MediaSource {
                 ],
                 downloadDelegate: self,
                 didDownloadSelector: #selector(didDownloadFile(_:error:options:contextInfo:)),
-                contextInfo: nil
+                contextInfo: UnsafeMutableRawPointer(bitPattern: token)
             )
         }
     }
@@ -120,9 +128,14 @@ final class USBMediaSource: NSObject, MediaSource {
         _ file: ICCameraFile, error: Error?, options: [String: Any], contextInfo: UnsafeMutableRawPointer?
     ) {
         onMain { [self] in
-            guard let download = takeActiveDownload() else { return }  // cancelled; late callback
+            // Ignore late completions of cancelled downloads: only the
+            // callback carrying the active request's token may resume it.
+            guard let download = activeDownload, download.token == Int(bitPattern: contextInfo) else { return }
+            activeDownload = nil
             if let error {
-                download.continuation.resume(throwing: error)
+                let code = (error as NSError).code
+                // ICReturnDownloadCanceled — surface as a cancellation, not a failure.
+                download.continuation.resume(throwing: code == -9937 ? CancellationError() : error)
                 return
             }
             // The framework reports the name it actually saved under; trust it
