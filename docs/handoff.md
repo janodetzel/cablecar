@@ -1,4 +1,4 @@
-# Handoff: iPhone media importer for macOS
+# Handoff: iPhone media importer for macOS (inital handoff, might be outdated)
 
 ## Goal
 

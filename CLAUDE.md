@@ -4,17 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-No code exists yet. This repository contains only `docs/handoff.md`, which is the authoritative spec — read it in full before writing any code. The project is a native macOS app (Swift/SwiftUI, macOS 13+) that imports photos and videos from a USB-connected iPhone into a Finder folder, delivering **unmodified originals** (HEVC video with HDR metadata intact) for a DaVinci Resolve workflow.
+No code exists yet. The authoritative documents, in precedence order:
 
-## Blocking decision before implementation
+1. `docs/adr/001-source-architecture.md` — the source-architecture decision (made 2026-09-25)
+2. `docs/design.md` — the v1 design from the grilling session
+3. `docs/handoff.md` — the original spec; superseded where the above differ
 
-A source-architecture decision must be made and recorded as an ADR (the user writes ADRs as part of their role) before code is written:
+The project is a native macOS app (Swift/SwiftUI, **macOS 15+**) that imports photos and videos from a USB-connected iPhone into a Finder folder, delivering **unmodified originals** (HEVC video with HDR metadata intact) for a DaVinci Resolve workflow. Internal name **Cablecar** (`com.janodetzel.cablecar`); display name decided before publishing.
 
-- **Option A — USB only (ImageCaptureCore):** meets the cable, filter, sort, original-export, and simplicity requirements. Cannot do albums or iCloud-only items.
-- **Option B — Mac Photos library (PhotoKit):** adds albums and iCloud-only items but drops the USB cable requirement.
-- **Option C — both sources with a switcher:** most work; only if cable imports of not-yet-synced items are truly needed.
+## Decided architecture (ADR-001)
 
-Do not start Option A while implicitly promising albums or iCloud items — state the limitation in the UI.
+**Option A now, evolving to Option C**: v1 is USB-only via ImageCaptureCore, built around a `MediaSource` abstraction so a PhotoKit/iCloud source can be added later. Albums and iCloud-only originals are deferred to that PhotoKit source; the v1 UI states both limitations plainly.
+
+**Hard constraints:**
+
+- **Never delete media from the phone — in any version.** The app is strictly read-only toward the device.
+- Never convert media; originals only.
+
+**Next step:** the spike listed in `docs/design.md` (verify `ICCameraFile` property names, unsandboxed ImageCaptureCore entitlement behavior, and how iCloud-offloaded items present over USB) before any app code.
 
 ## Hard technical constraints (from docs/handoff.md)
 
