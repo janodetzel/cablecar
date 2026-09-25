@@ -8,6 +8,9 @@
 # Spike test downloads
 spike-downloads/
 
+# Locally assembled app bundle (make app)
+Cablecar.app/
+
 # Xcode
 DerivedData/
 xcuserdata/
