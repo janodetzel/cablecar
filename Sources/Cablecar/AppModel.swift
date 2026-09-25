@@ -131,6 +131,22 @@ final class AppModel {
                     togglePreview()
                     return true
                 }
+                // J/K/L video shuttle while a video preview is up.
+                if modifiers.isEmpty, preview.isPresented, preview.hasVideoPlayer {
+                    switch characters?.lowercased() {
+                    case "j":
+                        preview.skip(by: -5)
+                        return true
+                    case "k":
+                        if !isRepeat { preview.togglePlayback() }
+                        return true
+                    case "l":
+                        preview.skip(by: 5)
+                        return true
+                    default:
+                        break
+                    }
+                }
                 if modifiers.isEmpty {
                     let direction: NavigationDirection?
                     switch keyCode {

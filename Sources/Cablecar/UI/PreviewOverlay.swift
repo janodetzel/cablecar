@@ -44,9 +44,13 @@ struct PreviewOverlay: View {
 
             Spacer()
 
-            Text("Esc to close · Space plays/pauses video · ⬅︎➡︎⬆︎⬇︎ to navigate · Pinch to zoom")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.5))
+            Text(
+                model.preview.hasVideoPlayer
+                    ? "Esc to close · Space/K play-pause · J/L ∓5 s · ⬅︎➡︎⬆︎⬇︎ to navigate · Pinch to zoom"
+                    : "Esc to close · ⬅︎➡︎⬆︎⬇︎ to navigate · Pinch to zoom"
+            )
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.5))
         }
     }
 

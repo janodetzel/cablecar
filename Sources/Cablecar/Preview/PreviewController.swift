@@ -150,6 +150,18 @@ final class PreviewController {
         }
     }
 
+    /// J/L-style relative seek, clamped to the clip's bounds.
+    func skip(by seconds: Double) {
+        guard let player else { return }
+        let upperBound = duration > 0 ? duration : Double.greatestFiniteMagnitude
+        let target = max(0, min(currentTime + seconds, upperBound))
+        currentTime = target
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: .zero, toleranceAfter: .zero
+        )
+    }
+
     func beginScrubbing() {
         guard player != nil else { return }
         isScrubbing = true
